@@ -98,7 +98,7 @@ def mine_pow(
             elapsed = time.perf_counter() - start_time
             rate = attempts / elapsed if elapsed > 0 else 0.0
             LOG.info(
-                "Still mining: checked %,d nonces in %.1fs (%.0f nonces/sec), current nonce=%d",
+                "Still mining: checked %d nonces in %.1fs (%.0f nonces/sec), current nonce=%d",
                 attempts,
                 elapsed,
                 rate,
@@ -222,7 +222,7 @@ async def async_main(args: argparse.Namespace) -> int:
         )
 
     LOG.info(
-        "Valid nonce found: %d (hash=%s, leading_zero_bits=%d, attempts=%,d, elapsed=%.2fs)",
+        "Valid nonce found: %d (hash=%s, leading_zero_bits=%d, attempts=%d, elapsed=%.2fs)",
         pow_result.nonce,
         format_hash(pow_result.digest),
         zero_bits,
