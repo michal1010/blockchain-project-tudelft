@@ -43,13 +43,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--discovery-timeout",
         type=float,
-        default=60.0,
+        default=60*10,
         help="Seconds to wait for the server to appear in the community",
     )
     parser.add_argument(
         "--response-timeout",
         type=float,
-        default=20.0,
+        default=60*10.0,
         help="Seconds to wait for the server reply after sending the submission",
     )
     parser.add_argument(

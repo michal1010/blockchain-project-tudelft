@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
-import logging
 import struct
 import sys
 import time
@@ -138,7 +137,9 @@ async def wait_for_server_peer(community: Lab1Community, timeout: float) -> Peer
     next_bootstrap = 0.0
 
     while True:
+        # LOG.info('entering the loop')
         server_peer = community.get_server_peer()
+        # LOG.info('got server peer: %s', server_peer)
         if server_peer is not None:
             LOG.info("Discovered the Lab 1 server at %s", server_peer.address)
             return server_peer
@@ -181,7 +182,7 @@ async def submit_solution(
 
         LOG.info("Local public key: %s", community.my_peer.public_key.key_to_bin().hex())
         server_peer = await wait_for_server_peer(community, discovery_timeout)
-
+        LOG.info("Server peer discovered")
         loop = asyncio.get_running_loop()
         response_future: asyncio.Future[ServerReply] = loop.create_future()
         community.set_response_future(response_future)
@@ -263,7 +264,7 @@ def main() -> int:
         return 130
     except Exception as exc:
         LOG.error("%s", exc)
-        LOG.debug("Full exception details", exc_info=True)
+        LOG.error("Full exception details", exc_info=True)
         return 1
 
 

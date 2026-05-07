@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
-import hashlib
-import logging
-import struct
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
+from traceback import format_exception
+
+from cryptography.exceptions import UnsupportedAlgorithm
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -35,7 +33,6 @@ except ModuleNotFoundError as exc:
 from static import (
     COMMUNITY_ID,
     SERVER_PUBLIC_KEY,
-    PowResult,
     ServerReply,
     SubmissionPayload,
     ResponsePayload,
@@ -63,6 +60,40 @@ class Lab1Community(Community):
 
     def send_submission(self, peer: Peer, email: str, github_url: str, nonce: int) -> None:
         self.ez_send(peer, SubmissionPayload(email, github_url, nonce))
+        LOG.info("Message sent — waiting for server response...")
+
+    def on_packet(self, packet: tuple, warn_unknown: bool = True) -> None:
+        """
+        Callback for when the Endpoint has new data for us.
+
+        :param packet: The address, bytes tuple that was received.
+        :param warn_unknown: Whether we should log incoming garbage data.
+        """
+        source_address, data = packet
+        probable_peer = self.network.get_verified_by_address(source_address)
+        if probable_peer:
+            probable_peer.last_response = time.time()
+        if self._prefix != data[:22]:
+            return
+        msg_id = data[22]
+        handler = self.decode_map[msg_id]
+        if handler is not None:
+            try:
+                result: asyncio.Coroutine | None = handler(source_address, data)
+                if asyncio.iscoroutine(result):
+                    # aw_result = cast("Awaitable", result)
+                    self.register_anonymous_task("on_packet", asyncio.ensure_future(result), ignore=(Exception,))
+            except UnsupportedAlgorithm as exc:
+                LOG.info(
+                    "Ignoring packet from %s with an unsupported public-key curve: %s",
+                    source_address,
+                    exc,
+                )
+            except Exception:
+                LOG.exception("Exception occurred while handling packet!\n%s",
+                                      "".join(format_exception(*sys.exc_info())))
+        elif warn_unknown:
+            self.logger.warning("Received unknown message: %d from (%s, %d)", msg_id, *source_address)
 
     @lazy_wrapper(ResponsePayload)
     def on_response(self, peer: Peer, payload: ResponsePayload) -> None:
@@ -77,7 +108,7 @@ class Lab1Community(Community):
         if self.response_future is None or self.response_future.done():
             LOG.info("Received a server response but no pending waiter is registered.")
             return
-
+        
         self.response_future.set_result(
             ServerReply(
                 success=payload.success,
