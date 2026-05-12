@@ -3,7 +3,7 @@ import struct
 import unittest
 from unittest.mock import patch
 
-import main
+import main as main
 
 
 EMAIL = "student@student.tudelft.nl"

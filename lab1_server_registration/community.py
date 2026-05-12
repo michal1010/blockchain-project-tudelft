@@ -10,7 +10,7 @@ from cryptography.exceptions import UnsupportedAlgorithm
 
 
 REPO_ROOT = Path(__file__).resolve().parent
-LOCAL_IPV8_ROOT = REPO_ROOT / "py-ipv8"
+LOCAL_IPV8_ROOT = REPO_ROOT/ ".." / "py-ipv8"
 
 if LOCAL_IPV8_ROOT.exists():
     sys.path.insert(0, str(LOCAL_IPV8_ROOT))
