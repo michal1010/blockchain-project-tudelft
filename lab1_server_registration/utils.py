@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--github-url", required=True, help="Public GitHub repository URL for this lab")
     parser.add_argument(
         "--key-file",
-        default="lab1_identity.pem",
+        default="key.pem",
         help="Path to the IPv8 private key file to load or create",
     )
     parser.add_argument("--port", type=int, default=8090, help="Preferred UDP port for IPv8")
