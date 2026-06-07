@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
-# Shared constants 
+# Shared constants
 
 # 20-byte community ID derived from Lab 2 group ID "3f66c2c14924eab2"
 BLOCKCHAIN_COMMUNITY_ID: bytes = b"Lab3_3f66c2c14924eab"
@@ -50,7 +50,7 @@ def pack_header(
         prev_hash
         + txs_hash
         + struct.pack(">Q", timestamp)   # 8 bytes unsigned
-        + struct.pack(">I", difficulty)  # 4 bytes unsigned  
+        + struct.pack(">I", difficulty)  # 4 bytes unsigned
         + struct.pack(">Q", nonce)       # 8 bytes unsigned
     )
 
@@ -348,6 +348,48 @@ class Chain:
         if block.hash != GENESIS.hash:
             return False, "chain does not terminate at our genesis"
         return True, ""
+
+    def replace_suffix(self, blocks: List[Block]) -> tuple[bool, str]:
+        """Replace the local chain after the parent of blocks[0] with the fetched suffix."""
+        if not blocks:
+            return False, "empty replacement suffix"
+
+        parent = self._by_hash.get(blocks[0].prev_hash)
+        if parent is None:
+            return False, "replacement suffix does not connect to local chain"
+
+        prefix = []
+        cursor = parent
+        while True:
+            prefix.append(cursor)
+            if cursor.height == 0:
+                break
+            cursor = self._by_hash.get(cursor.prev_hash)
+            if cursor is None:
+                return False, "local prefix is incomplete"
+        prefix.reverse()
+
+        new_by_hash: Dict[bytes, Block] = {}
+        new_by_height: Dict[int, List[Block]] = {}
+        for block in prefix:
+            new_by_hash[block.hash] = block
+            new_by_height.setdefault(block.height, []).append(block)
+
+        tip = parent
+        for block in blocks:
+            ok, reason = block.is_valid()
+            if not ok:
+                return False, f"block {block.height} invalid: {reason}"
+            if block.prev_hash != tip.hash or block.height != tip.height + 1:
+                return False, f"block {block.height}: suffix link mismatch"
+            new_by_hash[block.hash] = block
+            new_by_height.setdefault(block.height, []).append(block)
+            tip = block
+
+        self._by_hash = new_by_hash
+        self._by_height = new_by_height
+        self._tip = tip
+        return self.validate_full()
 
     def _store(self, block: Block) -> None:
         self._by_hash[block.hash] = block

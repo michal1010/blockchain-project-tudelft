@@ -173,6 +173,8 @@ class Lab3BlockchainCommunity(Community):
         self.mempool = Mempool()
         self.miner = Miner()
         self.member_keys = []
+        self.block_waiters = {}
+        self.request_id = 0
         self.add_message_handler(SubmitTransactionPayload, self.on_submit_transaction)
         self.add_message_handler(GetChainHeightPayload, self.on_get_chain_height)
         self.add_message_handler(GetBlockPayload, self.on_get_block)
@@ -214,6 +216,18 @@ class Lab3BlockchainCommunity(Community):
     def send_get_block(self, peer, height: int):
         self.ez_send(peer, GetBlockPayload(height))
 
+    async def request_block(self, peer, height: int, timeout: float = 3.0):
+        key = (peer.public_key.key_to_bin(), height)
+        future = asyncio.get_running_loop().create_future()
+        self.block_waiters[key] = future
+        try:
+            self.send_get_block(peer, height)
+            return await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self.block_waiters.pop(key, None)
+
     def broadcast_block(self, block: Block, exclude=None):
         payload = block_payload(BlockAnnouncePayload, block)
         for peer in self.teammates(exclude):
@@ -254,18 +268,26 @@ class Lab3BlockchainCommunity(Community):
 
     @lazy_wrapper(BlockResponsePayload)
     def on_block_response(self, peer, payload):
-        self.apply_received_block(peer, payload, rebroadcast=False)
-
-    @lazy_wrapper(BlockAnnouncePayload)
-    def on_block_announce(self, peer, payload):
-        self.apply_received_block(peer, payload, rebroadcast=True)
-
-    def apply_received_block(self, peer, payload, rebroadcast: bool):
         try:
             block = block_from_payload(payload)
         except ValueError as exc:
             LOG.warning("Ignoring malformed block from %s: %s", peer.address, exc)
             return
+        key = (peer.public_key.key_to_bin(), payload.height)
+        future = self.block_waiters.get(key)
+        if future is not None and not future.done():
+            future.set_result(block)
+
+    @lazy_wrapper(BlockAnnouncePayload)
+    def on_block_announce(self, peer, payload):
+        try:
+            block = block_from_payload(payload)
+        except ValueError as exc:
+            LOG.warning("Ignoring malformed block from %s: %s", peer.address, exc)
+            return
+        self.apply_received_block(peer, block, rebroadcast=True)
+
+    def apply_received_block(self, peer, block: Block, rebroadcast: bool):
         accepted = self.miner.on_block_received(self.chain, block, peer, self.mempool, self)
         if accepted and rebroadcast:
             self.broadcast_block(block, exclude=peer)

@@ -68,7 +68,7 @@ class Miner:
         if self._task and not self._task.done():
             self._task.cancel()
 
-    def on_block_received(self, chain, block, peer = None):
+    def on_block_received(self, chain, block, peer, mempool, community):
         """
         Called by message handler when a BlockAnnounce arrives from a peer.
         Validates and appends the block to the chain. If the chain grew, restarts mining
@@ -80,11 +80,12 @@ class Miner:
             result = chain.try_append(block)
             if result[0]:
                 if chain.height > prev_height:
+                    mempool.remove_confirmed(block.tx_hashes)
                     logger.info(f"Chain grew to {chain.height}, restarting mining")
                     self.restart_mining()
             elif "prev_hash unknown" in result[1]:
                 logger.info(f"Orphan block at height {block.height}, need catch-up")
-                asyncio.ensure_future(self.catch_up(chain, peer, block.height))
+                asyncio.ensure_future(self.catch_up(chain, peer, block.height, block, community, mempool))
             else:
                 logger.warning(f"Failed to append block {block.height}")
                 return None
@@ -100,21 +101,54 @@ class Miner:
 
     async def request_block(self, peer, height, community):
         """Send a RequestBlock message to a peer asking for the block at the given height. """
-        community.send_get_block(peer, height)
         logger.info(f"Requesting block at height {height} from peer")
+        return await community.request_block(peer, height)
 
-    async def catch_up(self, chain, peer, target_height, community=None):
+    def get_transacitons_from_previous_suffix(self, chain, suffix):
+        old_confirmed = []
+        parent = chain.get_by_hash(suffix[0].prev_hash)
+        if parent is not None:
+            for h in range(parent.height + 1, chain.height + 1):
+                old_block = chain.get_by_height(h)
+                if old_block is not None:
+                    old_confirmed.extend(old_block.tx_hashes)
+        return old_confirmed
+
+    async def catch_up(self, chain, peer, target_height, block, community, mempool=None):
         """
         Fetch missing blocks from a peer to catch up to target_height.
         Requests each missing height one by one and waits for handler
         to apply the received block. Aborts if a height is not received within 1 second.
         """
-        for h in range(chain.height + 1, target_height + 1):
+        suffix = [block]
+        for h in range(target_height, 0, -1):
             # send RequestBlock message to peer asking for height h
             logger.info(f"Requesting block at height {h} from peer")
-            await self.request_block(peer, h, community)
-            await asyncio.sleep(1)
-            if chain.get_by_height(h) is None:
-                logger.warning(f"Height {h} not received, aborting catch-up")
+            block = await self.request_block(peer, h, community)
+            if block is None:
+                logger.warning(f"Timed out waiting for block at height {h}, aborting catch-up")
+                return
+            if chain.get_by_hash(block.prev_hash) is not None:
                 break
+            suffix.append(block)
+        else:
+            logger.warning("Reached genesis during catch-up without connecting to local chain")
+            return
+
+        suffix.reverse()
+
+        old_confirmed = self.get_transacitons_from_previous_suffix(chain, suffix)
+
+        ok, reason = chain.replace_suffix(suffix)
+
+        if ok:
+            if mempool is not None:
+                mempool.readd_unconfirmed(old_confirmed)
+                confirmed = [tx_hash for suffix_block in suffix for tx_hash in suffix_block.tx_hashes]
+                mempool.remove_confirmed(confirmed)
+            logger.info(f"Replaced local suffix with peer suffix at height {chain.height}")
+            self.restart_mining()
+        else:
+            logger.warning(f"Fetched suffix rejected: {reason}")
+
         logger.info(f"Catch-up done, chain at height {chain.height}")
