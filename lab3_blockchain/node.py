@@ -4,25 +4,14 @@ import argparse
 import asyncio
 import logging
 import struct
-import sys
 import time
-from pathlib import Path
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-LOCAL_IPV8_ROOT = REPO_ROOT / "py-ipv8"
-if LOCAL_IPV8_ROOT.exists():
-    sys.path.insert(0, str(LOCAL_IPV8_ROOT))
-
-try:
-    from ipv8.community import Community
-    from ipv8.configuration import ConfigBuilder, Strategy, WalkerDefinition, default_bootstrap_defs
-    from ipv8.keyvault.crypto import default_eccrypto
-    from ipv8.lazy_community import lazy_wrapper
-    from ipv8.messaging.lazy_payload import VariablePayload, vp_compile
-    from ipv8_service import IPv8
-except ModuleNotFoundError as exc:
-    raise SystemExit(f"Could not import py-ipv8. Original import error: {exc}") from exc
+from ipv8.community import Community
+from ipv8.configuration import ConfigBuilder, Strategy, WalkerDefinition, default_bootstrap_defs
+from ipv8.keyvault.crypto import default_eccrypto
+from ipv8.lazy_community import lazy_wrapper
+from ipv8.messaging.lazy_payload import VariablePayload, vp_compile
+from ipv8_service import IPv8
 
 from blockchain import BLOCKCHAIN_COMMUNITY_ID, Block, Chain, tx_hash
 from mempool import Mempool, Transaction
