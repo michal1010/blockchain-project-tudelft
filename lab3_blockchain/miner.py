@@ -1,6 +1,6 @@
 import asyncio, logging
 from blockchain import mine_block, Block, Chain, DEFAULT_DIFFICULTY
-from mempool import Mempool, Transaction
+from mempool import Mempool
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class Miner:
         Returns the mined Block on success, None on failure.
         """
         # get tip of chain, height and pending transactions to mine
-        
+
         tip_block = chain.tip
         block_height = tip_block.height
         pending_txs = mempool.drain() #gives a list of (hash, tx) tuples
@@ -56,13 +56,16 @@ class Miner:
         """
         while True:
             try:
+                if community and hasattr(community, "should_mine_next"):
+                    while not community.should_mine_next(chain.height + 1):
+                        await asyncio.sleep(0.2)
                 self._task = asyncio.ensure_future(self.mine_one(chain, mempool))
                 block = await self._task
                 if block is not None:
                     self.broadcast_block(community, block)
             except asyncio.CancelledError:
                 logger.info("restarting mining on new tip (height=%d)", chain.height)
-            
+
     def restart_mining(self):
         """Cancel the current mine_one task so mining_loop restarts from the new chain tip."""
         if self._task and not self._task.done():
@@ -88,22 +91,22 @@ class Miner:
             else:
                 logger.warning(f"Failed to append block {block.height}")
                 return None
-            
+
         except Exception as e:
             logger.error(f"Unexpected error appending block {block.height}: {e}")
             return None
-        
+
     def broadcast_block(self, community, block: Block):
         """Broadcast a newly mined block to all peers."""
-        # Michal fills in the ez_send call here
+        community.broadcast_block(block)
         logger.info(f"Broadcasting block {block.height} to peers")
 
-    async def request_block(self, peer, height):
+    async def request_block(self, peer, height, community):
         """Send a RequestBlock message to a peer asking for the block at the given height. """
-        # Michal fills in the ez_send call here
+        community.send_get_block(peer, height)
         logger.info(f"Requesting block at height {height} from peer")
 
-    async def catch_up(self, chain, peer, target_height):
+    async def catch_up(self, chain, peer, target_height, community=None):
         """
         Fetch missing blocks from a peer to catch up to target_height.
         Requests each missing height one by one and waits for handler
@@ -112,11 +115,9 @@ class Miner:
         for h in range(chain.height + 1, target_height + 1):
             # send RequestBlock message to peer asking for height h
             logger.info(f"Requesting block at height {h} from peer")
-            await self.request_block(peer, h)
-            await asyncio.sleep(1) 
+            await self.request_block(peer, h, community)
+            await asyncio.sleep(1)
             if chain.get_by_height(h) is None:
                 logger.warning(f"Height {h} not received, aborting catch-up")
                 break
         logger.info(f"Catch-up done, chain at height {chain.height}")
-    
-    
