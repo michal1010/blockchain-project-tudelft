@@ -205,11 +205,6 @@ class Lab3BlockchainCommunity(Community):
             ignore=(Exception,),
         )
 
-    def should_mine_next(self, height: int) -> bool:
-        if not self.member_keys:
-            return True
-        return self.member_keys[(height - 1) % len(self.member_keys)] == self.local_key
-
     def teammates(self, exclude=None):
         exclude_key = exclude.public_key.key_to_bin() if exclude else None
         return [

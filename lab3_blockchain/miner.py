@@ -56,9 +56,6 @@ class Miner:
         """
         while True:
             try:
-                if community and hasattr(community, "should_mine_next"):
-                    while not community.should_mine_next(chain.height + 1):
-                        await asyncio.sleep(0.2)
                 self._task = asyncio.ensure_future(self.mine_one(chain, mempool))
                 block = await self._task
                 if block is not None:
