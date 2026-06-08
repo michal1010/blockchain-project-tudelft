@@ -192,7 +192,10 @@ class Lab3BlockchainCommunity(Community):
             raise RuntimeError(f"My key is not in MEMBER_KEYS_HEX:\n  {self.local_key.hex()}")
         self.register_anonymous_task(
             "mining_loop",
-            self.miner.mining_loop(self.chain, self.mempool, self),
+            self.miner.mining_loop,
+            self.chain,
+            self.mempool,
+            self,
             ignore=(Exception,),
         )
 
