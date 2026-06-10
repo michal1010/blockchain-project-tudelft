@@ -282,16 +282,16 @@ class Lab3BlockchainCommunity(Community):
             future.set_result(block)
 
     @lazy_wrapper(BlockAnnouncePayload)
-    def on_block_announce(self, peer, payload):
+    async def on_block_announce(self, peer, payload):
         try:
             block = block_from_payload(payload)
         except ValueError as exc:
             LOG.warning("Ignoring malformed block from %s: %s", peer.address, exc)
             return
-        self.apply_received_block(peer, block, rebroadcast=True)
+        await self.apply_received_block(peer, block, rebroadcast=True)
 
-    def apply_received_block(self, peer, block: Block, rebroadcast: bool):
-        accepted = self.miner.on_block_received(self.chain, block, peer, self.mempool, self)
+    async def apply_received_block(self, peer, block: Block, rebroadcast: bool):
+        accepted = await self.miner.on_block_received(self.chain, block, peer, self.mempool, self)
         if accepted and rebroadcast:
             self.broadcast_block(block, exclude=peer)
 

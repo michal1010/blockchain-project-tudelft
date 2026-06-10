@@ -68,7 +68,7 @@ class Miner:
         if self._task and not self._task.done():
             self._task.cancel()
 
-    def on_block_received(self, chain, block, peer, mempool, community):
+    async def on_block_received(self, chain, block, peer, mempool, community):
         """
         Called by message handler when a BlockAnnounce arrives from a peer.
         Validates and appends the block to the chain. If the chain grew, restarts mining
@@ -83,9 +83,11 @@ class Miner:
                     mempool.remove_confirmed(block.tx_hashes)
                     logger.info(f"Chain grew to {chain.height}, restarting mining")
                     self.restart_mining()
+                return True
             elif "prev_hash unknown" in result[1]:
                 logger.info(f"Orphan block at height {block.height}, need catch-up")
-                asyncio.ensure_future(self.catch_up(chain, peer, block.height, block, community, mempool))
+                await self.catch_up(chain, peer, block.height, block, community, mempool)
+                return True
             else:
                 logger.warning(f"Failed to append block {block.height}")
                 return None
@@ -121,16 +123,15 @@ class Miner:
         to apply the received block. Aborts if a height is not received within 1 second.
         """
         suffix = [block]
-        for h in range(target_height, 0, -1):
-            # send RequestBlock message to peer asking for height h
+        for h in range(target_height - 1, 0, -1):
             logger.info(f"Requesting block at height {h} from peer")
-            block = await self.request_block(peer, h, community)
-            if block is None:
+            fetched = await self.request_block(peer, h, community)
+            if fetched is None:
                 logger.warning(f"Timed out waiting for block at height {h}, aborting catch-up")
                 return
-            if chain.get_by_hash(block.prev_hash) is not None:
+            suffix.append(fetched)
+            if chain.get_by_hash(fetched.prev_hash) is not None:
                 break
-            suffix.append(block)
         else:
             logger.warning("Reached genesis during catch-up without connecting to local chain")
             return
