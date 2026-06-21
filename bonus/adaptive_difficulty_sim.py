@@ -70,10 +70,18 @@ if __name__ == "__main__":
         hashrate_fn = lambda i: 10.0 if i >= 20 else 1.0,
     )
 
-    # Scenario 3: one node lies about its timestamp every 3rd block.
-    # MTP-delta voting absorbs the lie; difficulty should stay at DEFAULT_DIFFICULTY.
+    # Scenario 3: 10x hashpower drop at block 20.
+    # Difficulty should fall then settle near DEFAULT-3 (log2(10) ≈ 3.32 bits).
     run_scenario(
-        "Scenario 3: one node lies every 3rd block",
+        "Scenario 3: 10x hashpower drop at block 20",
+        n_blocks    = 70,
+        hashrate_fn = lambda i: 0.1 if i >= 20 else 1.0,
+    )
+
+    # Scenario 4: one node lies about its timestamp every 3rd block.
+    # Net-balance voting cancels liar contributions; difficulty should stay at DEFAULT_DIFFICULTY.
+    run_scenario(
+        "Scenario 4: one node lies every 3rd block",
         n_blocks    = 30,
         hashrate_fn = lambda i: 1.0,
         liar_fn     = lambda i: i % 3 == 0,
