@@ -223,6 +223,8 @@ def mine_block(
     timestamp  = max(int(time.time()), mtp_floor)
     nonce = start_nonce
 
+    print(f"Mining block at height {height} with difficulty {difficulty} ...")
+
     while True:
         hdr = pack_header(prev_hash, body_commitment, timestamp, difficulty, nonce)
         digest = block_hash(hdr)
