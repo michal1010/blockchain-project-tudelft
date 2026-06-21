@@ -19,6 +19,11 @@ DEFAULT_DIFFICULTY: int = 12
 # Timestamp derived from group ID: int("3f66c2c14924eab2", 16) % 10**9 = 425579698
 GENESIS_TIMESTAMP: int = 425579698
 
+TARGET_BLOCK_TIME = 10  # target seconds per block
+VOTE_WINDOW       = 5   # how many recent blocks vote
+DEAD_BAND_FACTOR  = 2   # only vote if >2x slow or <0.5x fast
+MTP_WINDOW        = 11  # blocks used for median-time-past
+
 
 # 1. Header packing
 
@@ -207,12 +212,15 @@ def mine_block(
     height: int,
     prev_hash: bytes,
     tx_hash_list: List[bytes],
-    difficulty: int = DEFAULT_DIFFICULTY,
+    chain: Chain,
     start_nonce: int = 0,
 ) -> Block:
     """Search for a nonce that satisfies `difficulty` leading zero bits."""
+    tip = chain.tip
     body_commitment = txs_hash(tx_hash_list)
-    timestamp = int(time.time())
+    difficulty = chain.compute_next_difficulty()
+    mtp_floor  = median_time_past(chain, tip) + 1
+    timestamp  = max(int(time.time()), mtp_floor)
     nonce = start_nonce
 
     while True:
@@ -256,6 +264,19 @@ def _build_genesis() -> Block:
                 tx_hashes=[],
             )
         nonce += 1
+
+# 7. Compute median time past
+
+def median_time_past(chain, parent):
+    timestamps = []
+    cursor = parent
+    for _ in range(min(MTP_WINDOW, parent.height + 1)):
+        timestamps.append(cursor.timestamp)
+        cursor = chain._by_hash.get(cursor.prev_hash)
+        if cursor is None:
+            break
+    timestamps.sort()
+    return timestamps[len(timestamps) // 2]
 
 
 GENESIS: Block = _build_genesis()
@@ -321,6 +342,10 @@ class Chain:
         if block.height != parent.height + 1:
             return False, f"height {block.height} does not follow parent {parent.height}"
 
+        difficulty = self.compute_next_difficulty()
+        if block.difficulty != difficulty:
+            return False, f"difficulty {block.difficulty} does not match expected {difficulty}"
+
         self._store(block)
         if block.height > self._tip.height:
             self._tip = block
@@ -382,6 +407,8 @@ class Chain:
                 return False, f"block {block.height} invalid: {reason}"
             if block.prev_hash != tip.hash or block.height != tip.height + 1:
                 return False, f"block {block.height}: suffix link mismatch"
+            if block.difficulty != self.compute_next_difficulty(tip, new_by_hash):
+                return False, f"block {block.height}: difficulty mismatch"
             new_by_hash[block.hash] = block
             new_by_height.setdefault(block.height, []).append(block)
             tip = block
@@ -406,6 +433,39 @@ class Chain:
                 return None
             block = parent
         return block if block.height == target_height else None
+
+    def compute_next_difficulty(self, tip=None, hash_list=None) -> int:
+        tip = self.tip if tip is None else tip
+        hash_list = self._by_hash if hash_list is None else hash_list
+
+        if tip.height < VOTE_WINDOW + 1:
+            return DEFAULT_DIFFICULTY
+
+        T = TARGET_BLOCK_TIME
+
+        blocks = [tip]
+        cursor = tip
+        for _ in range(VOTE_WINDOW):
+            parent = hash_list.get(cursor.prev_hash)
+            if parent is None:
+                return DEFAULT_DIFFICULTY
+            blocks.append(parent)
+            cursor = parent
+        blocks.reverse()
+
+        solvetimes = [
+            max(1, min(blocks[i].timestamp - blocks[i - 1].timestamp, 6 * T))
+            for i in range(1, len(blocks))
+        ]
+
+        slow = sum(1 for s in solvetimes if s > T * DEAD_BAND_FACTOR)
+        fast = sum(1 for s in solvetimes if s < T / DEAD_BAND_FACTOR)
+
+        if slow == VOTE_WINDOW:
+            return max(1, tip.difficulty - 1)
+        if fast == VOTE_WINDOW:
+            return tip.difficulty + 1
+        return tip.difficulty
 
 
 

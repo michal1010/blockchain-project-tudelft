@@ -28,7 +28,7 @@ class Miner:
         # mine in a event loop to make it non blocking
         loop = asyncio.get_running_loop()
         try:
-            block = await loop.run_in_executor(None, mine_block, block_height + 1, tip_block.hash, tx_hash_list, DEFAULT_DIFFICULTY)
+            block = await loop.run_in_executor(None, mine_block, block_height + 1, tip_block.hash, tx_hash_list, chain)
         except asyncio.CancelledError:
             logger.info("mining cancelled at height %d (new tip arrived)", block_height + 1)
             raise  # let mining_loop handle the restart
