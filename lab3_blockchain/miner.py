@@ -1,14 +1,16 @@
-import asyncio, logging
-from blockchain import mine_block, Block, Chain, DEFAULT_DIFFICULTY
+import asyncio, logging, time
+from blockchain import mine_block, Block, Chain, DEFAULT_DIFFICULTY, FUTURE_TIME_LIMIT
 from mempool import Mempool
 
 logger = logging.getLogger(__name__)
 
 class Miner:
 
-    def __init__(self):
+    def __init__(self, delay=0.0, timestamp_lie=None):
         self._task = None
         self.catching_up = False
+        self.delay = delay
+        self.timestamp_lie = timestamp_lie
 
     async def mine_one(self, chain: Chain, mempool: Mempool):
         """
@@ -20,6 +22,9 @@ class Miner:
         """
         # get tip of chain, height and pending transactions to mine
 
+        if self.delay:
+            await asyncio.sleep(self.delay)
+
         tip_block = chain.tip
         block_height = tip_block.height
         pending_txs = mempool.drain() #gives a list of (hash, tx) tuples
@@ -28,13 +33,14 @@ class Miner:
         # mine in a event loop to make it non blocking
         loop = asyncio.get_running_loop()
         try:
-            block = await loop.run_in_executor(None, mine_block, block_height + 1, tip_block.hash, tx_hash_list, chain)
+            block = await loop.run_in_executor(None, mine_block, block_height + 1, tip_block.hash,
+                                               tx_hash_list, chain, 0, self.timestamp_lie)
         except asyncio.CancelledError:
             logger.info("mining cancelled at height %d (new tip arrived)", block_height + 1)
             raise  # let mining_loop handle the restart
 
         try:
-            result = chain.try_append(block)
+            result = chain.try_append(block, validate_timestamp=self.timestamp_lie is None)
         except Exception as e:
             logger.error("unexpected error appending block %d: %s", block_height + 1, e)
             return None
@@ -136,12 +142,18 @@ class Miner:
         Phase 2: forward walk — query peer height and fetch any blocks still ahead.
         """
         # Phase 1: backward walk to resolve the fork
+        if block.timestamp > int(time.time()) + FUTURE_TIME_LIMIT:
+            logger.warning("Rejecting block %d: timestamp too far in the future", block.height)
+            return
         suffix = [block]
         for h in range(target_height - 1, 0, -1):
             logger.info(f"Requesting block at height {h} from peer")
             fetched = await self.request_block(peer, h, community)
             if fetched is None:
                 logger.warning(f"Timed out at height {h}, aborting catch-up")
+                return
+            if fetched.timestamp > int(time.time()) + FUTURE_TIME_LIMIT:
+                logger.warning("Rejecting block %d: timestamp too far in the future", fetched.height)
                 return
             suffix.append(fetched)
             if chain.get_by_hash(fetched.prev_hash) is not None:
