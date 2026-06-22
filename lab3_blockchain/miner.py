@@ -104,7 +104,7 @@ class Miner:
                     await self.catch_up(chain, peer, block.height, block, community, mempool)
                 finally:
                     self.catching_up = False
-                return True
+                return chain.get_by_hash(block.hash) is not None
             else:
                 logger.warning(f"Failed to append block {block.height}")
                 return None
