@@ -4,9 +4,10 @@ This README covers the runnable files in:
 
 - `lab1_server_registration/`
 - `lab2_coordination/`
+- `lab3_blockchain/`
 
 Run all commands from the repository root.
-It is also updated to include the lab3 and bonus assignment
+The Lab 3 blockchain and adaptive-difficulty bonus are documented below.
 
 ## Setup
 
@@ -47,36 +48,6 @@ Successful output includes:
 server_success=True
 server_message=...
 server_public_key=...
-```
-
-### Mine Only
-
-To compute a nonce without submitting it:
-
-```bash
-python3 lab1_server_registration/main.py \
-  --email your_name@student.tudelft.nl \
-  --github-url https://github.com/your-user/your-repo \
-  --mine-only
-```
-
-This prints:
-
-```text
-nonce=...
-hash=...
-leading_zero_bits=...
-```
-
-### Submit an Existing Nonce
-
-If you already mined a nonce:
-
-```bash
-python3 lab1_server_registration/main.py \
-  --email your_name@student.tudelft.nl \
-  --github-url https://github.com/your-user/your-repo \
-  --nonce 123456789
 ```
 
 Useful optional arguments:
@@ -139,28 +110,6 @@ Useful optional arguments:
 
 ### Run the Signing Coordination
 
-Before starting, edit the constants at the top of `lab2_coordination/group_submition.py` for each member:
-
-```python
-MY_ROUND = 1
-KEY_FILE = "key.pem"
-GROUP_ID = "the_group_id_from_registration"
-MEMBER_KEYS_HEX = [
-    "member_1_public_key_hex",
-    "member_2_public_key_hex",
-    "member_3_public_key_hex",
-]
-```
-
-Each member must set:
-
-- `MY_ROUND = 1` for the member whose key is first in `MEMBER_KEYS_HEX`.
-- `MY_ROUND = 2` for the second member.
-- `MY_ROUND = 3` for the third member.
-- `KEY_FILE` to that member's own private key file.
-- `GROUP_ID` to the value printed by `registration.py`.
-
-Then all three members run:
 
 ```bash
 python3 lab2_coordination/group_submition.py
@@ -189,9 +138,10 @@ Lab 3 extends the peer-to-peer system with a blockchain layer that supports tran
 
 * Genesis block generation and validation
 * SHA-256 block hashing
-* Proof-of-work mining
+* Proof-of-work mining with adaptive difficulty
 * Block validation and chain validation
 * Block indexing by hash and height
+* Median-time-past and future-timestamp validation
 
 #### Transactions
 
@@ -230,7 +180,9 @@ When mining:
 4. Proof-of-work is executed.
 5. The block is validated and appended to the chain.
 
-If a new valid block is received while mining, the current mining task is cancelled and restarted on top of the new chain tip.
+Mining starts only after all configured teammate keys have been discovered. If a
+new valid block is received while mining, the current mining task is cancelled
+and restarted on top of the new chain tip.
 
 #### Consensus
 
@@ -239,10 +191,17 @@ When a block is received from a peer:
 * Valid extending blocks are appended.
 * Invalid blocks are rejected.
 * Orphan blocks trigger the catch-up protocol.
+* Every block must use the difficulty expected from its parent chain.
+* Every timestamp must be above its parent's median time past and no more than
+  60 seconds ahead of the local clock.
 
 #### Catch-Up Protocol
 
 When a node receives a block whose parent is unknown:
+
+Before catch-up starts, stale orphans at or below the local height and orphans
+with invalid timestamps are rejected. A second orphan cannot start another
+catch-up while one is already running.
 
 **Phase 1 – Backward Walk**
 
@@ -253,6 +212,10 @@ When a node receives a block whose parent is unknown:
 
 * Query the peer's chain height.
 * Fetch all missing blocks until synchronization is complete.
+
+The catch-up state is cleared even if a request times out or validation fails.
+If proof-of-work completed in the worker thread during catch-up and the mined
+block still extends the resulting tip, the node can recover and broadcast it.
 
 #### Chain Reorganization
 
@@ -276,19 +239,14 @@ Run from the repository root:
 python3 lab3_blockchain/node.py
 ```
 
-or
-
-```bash
-python lab3_blockchain/node.py
-```
-
 The node will:
 
 1. Start IPv8.
 2. Join the blockchain overlay.
 3. Register with the Lab 3 server.
-4. Discover peers.
-5. Begin transaction exchange and mining.
+4. Discover the configured teammates.
+5. Wait until every teammate is connected.
+6. Begin transaction exchange and mining.
 
 ---
 
@@ -303,16 +261,21 @@ python3 lab3_blockchain/node.py \
 
 Optional arguments:
 
-| Argument         | Description                                        |
-| ---------------- | -------------------------------------------------- |
-| `--key-file`     | Private key file to use                            |
-| `--port`         | Local IPv8 UDP port                                |
-| `--group-id`     | Registered group identifier                        |
-| `--community-id` | Blockchain overlay identifier                      |
-| `--member-key`   | Member public key (can be supplied multiple times) |
-| `--no-register`  | Skip server registration                           |
-| `--timeout`      | Registration timeout in seconds                    |
-| `--log-level`    | Logging level (`INFO`, `DEBUG`, etc.)              |
+| Argument         | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| `--key-file`     | Private key file to use                                            |
+| `--port`         | Local IPv8 UDP port                                                |
+| `--group-id`     | Registered group identifier                                        |
+| `--community-id` | Blockchain overlay identifier                                      |
+| `--member-key`   | Member public key (repeat for every member)                         |
+| `--no-register`  | Skip server registration                                           |
+| `--timeout`      | Registration timeout in seconds                                    |
+| `--mining-delay` | Delay before each mining attempt; useful for simulations           |
+| `--lie`          | Mine with a `forward` or `backward` dishonest timestamp for testing |
+| `--log-level`    | Logging level (`INFO`, `DEBUG`, etc.)                              |
+
+The local key must be included in the configured member keys. When
+`--member-key` is omitted, the constants in `MEMBER_KEYS_HEX` are used.
 
 ---
 
@@ -341,6 +304,7 @@ python3 lab3_blockchain/node.py \
 Nodes will automatically:
 
 * Discover each other
+* Wait for all configured teammates before mining
 * Exchange transactions
 * Broadcast newly mined blocks
 * Synchronize chains when forks occur
@@ -354,7 +318,10 @@ Nodes will automatically:
 * Non-blocking asynchronous mining
 * Thread-safe mempool operations
 * Automatic mining restart on new chain tips
-* Orphan block detection and recovery
+* Adaptive difficulty checked during mining, append, and reorganization
+* Median-time-past and future-time timestamp checks
+* Orphan block detection with stale/concurrent catch-up guards
+* Recovery of usable mining results produced during catch-up
 * Fork handling through chain reorganization
 * Transaction recovery during reorgs
 * Full-chain validation after suffix replacement
@@ -362,79 +329,85 @@ Nodes will automatically:
 
 ## Bonus: Adaptive Difficulty
 
-## What this is
+### What This Is
 
-The base chain mines at a fixed difficulty (12 leading zero bits), so block
-times drift whenever hashpower changes. This add-on adjusts difficulty
-automatically. It is **purely additive** — two new files, nothing in the
-submitted code is modified.
+The chain starts at a difficulty of 19 leading zero bits and targets one block
+every 10 seconds. The bonus retarget logic is now integrated into the main Lab
+3 blockchain, so mined and received blocks use the same deterministic expected
+difficulty. This lets the chain react when hashpower changes while rejecting
+peers that claim an incorrect difficulty.
 
-## Files
+### Files
+
+**All the changes are integrated into the lab3 source code. We have also prepared a simulation of the adpative difficulty mechanism in the bonus folder.**
+
 
 | File | Purpose |
 |---|---|
-| `adaptive_difficulty.py` | The retarget logic: three functions |
-| `adaptive_difficulty_sim.py` | Simulation using `Chain` and `Block` |
-| `test_adaptive_difficulty.py` | Six tests verifying the properties hold |
+| `lab3_blockchain/blockchain.py` | Integrated retarget, timestamp validation, and adaptive mining logic |
+| `bonus/adaptive_difficulty.py` | Original standalone prototype retained for reference |
+| `bonus/adaptive_difficulty_sim.py` | Four-scenario simulation using the integrated `Chain` and `Block` |
+| `bonus/test_adaptive_difficulty.py` | Six checks for retargeting, timestamp safety, determinism, and real PoW |
 
-## How it works
+### How It Works
 
-**`compute_next_difficulty`** looks at the last 5 block solvetimes and votes:
-- solvetime > 2 × target → **slow** vote
-- solvetime < target / 2 → **fast** vote
-- anything between → **abstain** (normal noise)
+`Chain.compute_next_difficulty()` looks at the last five block solve times and
+classifies each interval:
 
-All 5 slow → difficulty − 1. All 5 fast → difficulty + 1. Otherwise hold.
+- More than 20 seconds: **slow** vote
+- Less than 5 seconds: **fast** vote
+- Between 5 and 20 seconds: abstain
 
-Solvetimes are clamped to [1, 6×T] before voting so a fake far-future
-timestamp can only inject one bounded interval, not an arbitrarily large one.
+Solve times are clamped to the range 1–60 seconds. Difficulty decreases by one
+when `slow - fast >= 4`, increases by one when `fast - slow >= 4`, and otherwise
+stays unchanged. Net-balance voting means a forward timestamp lie contributes
+one slow interval followed by one fast interval, so the two votes cancel.
 
-**`median_time_past`** returns the median of the last 11 block timestamps.
-New blocks must have a timestamp strictly above this. One node of three controls
-~4 of 11 timestamps — not enough to move the median.
+`median_time_past()` returns the median of up to the last 11 block timestamps.
+A new block must be strictly newer than its parent's median time past and cannot
+be more than 60 seconds in the future. These rules are enforced when appending a
+block, replacing a suffix during reorganization, and processing catch-up data.
 
-**`mine_next_block`** does a genuine nonce search at the adaptive difficulty,
-with the timestamp clamped above MTP. This is the function to call in the real
-node instead of the base `mine_block`.
+`mine_block()` now computes the next difficulty directly from the supplied
+chain and chooses a timestamp above median time past before doing a genuine
+nonce search. The miner prints the height and selected difficulty when each
+attempt begins.
 
-**Why 5 blocks?** PoW solve times are exponentially distributed. At correct
-difficulty, the probability any single block falls outside the dead-band and
-votes "fast" is 1 − e⁻⁰·⁵ ≈ 39%. For a false trigger all 5 must agree:
-0.39⁵ ≈ 0.9%. At N=4 this is 2.4% — visibly too twitchy. N=5 is the minimum
-for a sub-1% false trigger rate.
+The same expected difficulty is validated for ordinary appends and every block
+of a proposed replacement suffix, preventing a fork from bypassing retarget
+rules.
 
-## The simulation
+### Experiments
 
-The sim uses the `Chain` class and `Block` dataclass from
-`blockchain.py`. Blocks are added via `chain._store()` and `chain._tip`
-directly, bypassing only the PoW check. 
+The `--mining-delay SECONDS` flag makes a node wait before every mining
+attempt (the default is `0`). Running different nodes with different delays
+can simulate faster and slower miners.
 
-PoW is bypassed because real PoW and synthetic timestamps are incompatible:
-if timestamps say blocks are arriving fast, the algorithm raises difficulty
-exponentially, making real mining take minutes. The sim tests the algorithm,
-not PoW. `test_mine_next_block_accepted_by_chain` tests the real PoW path.
+The `--lie forward|backward` flag makes every locally mined block use a
+dishonest timestamp. `forward` moves the timestamp ahead by the configured
+future-time limit, while `backward` uses the oldest timestamp permitted by
+median-time-past. The lying node bypasses its own timestamp check, but honest
+peers still validate the block and may reject it. Both flags can be combined,
+for example: `python3 lab3_blockchain/node.py --no-register --mining-delay 5 --lie forward`.
 
-Timestamps are generated from an exponential distribution matching the
-current difficulty and hashrate — the same probability model as actual PoW.
-This lets difficulty settle naturally after a hashpower jump.
+### Simulation
 
-## How to run
+The simulation imports `Chain`, `Block`, and the adaptive-difficulty constants
+from `lab3_blockchain/blockchain.py`. It generates solve times from an
+exponential distribution based on the current difficulty and simulated
+hashrate, then stores synthetic blocks directly to avoid performing expensive
+real proof-of-work for every sample.
 
+The scenarios cover steady hashpower, a 10× increase, a 10× decrease, and a
+dishonest timestamp every third block. The test script separately verifies that
+a real block produced by `mine_block()` is accepted by `Chain.try_append()`.
+
+### Run the Simulation and Tests
 
 ```bash
 python3 bonus/adaptive_difficulty_sim.py
 python3 bonus/test_adaptive_difficulty.py
 ```
 
-## What to expect
-
-**Scenario 1 (steady):** difficulty stays at 12. Solvetimes scatter — some 2s,
-some 40s — but never all-5-fast or all-5-slow simultaneously.
-
-**Scenario 2 (10x jump at block 10):** blocks arrive at 1s each, difficulty
-climbs 12 → 15 over ~5 blocks, then settles. At difficulty 15 with 10x
-hashpower, expected solvetime = 10 × 2³ / 10 = 8s — inside the dead-band.
-
-**Scenario 3 (liar every 3rd block):** lie creates one clamped-to-60s solvetime
-followed by one clamped-to-1s solvetime. These cancel in the vote window;
-difficulty never reaches all-5 agreement and stays at 12.
+Successful tests finish with `All tests passed.` The real-PoW check can take
+longer than the synthetic scenarios because the starting difficulty is 19.
