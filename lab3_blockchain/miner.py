@@ -1,5 +1,5 @@
 import asyncio, logging, time
-from blockchain import mine_block, Block, Chain, DEFAULT_DIFFICULTY, FUTURE_TIME_LIMIT
+from blockchain import mine_block, Block, Chain, DEFAULT_DIFFICULTY, FUTURE_TIME_LIMIT, median_time_past
 from mempool import Mempool
 
 logger = logging.getLogger(__name__)
@@ -115,6 +115,12 @@ class Miner:
             if block.timestamp > int(time.time()) + FUTURE_TIME_LIMIT:
                 logger.warning("Rejecting block %d: timestamp too far in the future", block.height)
                 return None
+            parent = chain.get_by_hash(block.prev_hash)
+            if parent is not None:
+                mtp = median_time_past(parent, chain._by_hash)
+                if block.timestamp <= mtp:
+                    logger.warning("Rejecting block %d: timestamp %d <= parent MTP %d", block.height, block.timestamp, mtp)
+                    return None
             prev_height = chain.height
             result = chain.try_append(block)
             if result[0]:
