@@ -112,6 +112,9 @@ class Miner:
         the missing blocks from the peer.
         """
         try:
+            if block.timestamp > int(time.time()) + FUTURE_TIME_LIMIT:
+                logger.warning("Rejecting block %d: timestamp too far in the future", block.height)
+                return None
             prev_height = chain.height
             result = chain.try_append(block)
             if result[0]:
