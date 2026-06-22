@@ -196,10 +196,7 @@ class Lab3BlockchainCommunity(Community):
             raise RuntimeError(f"My key is not in MEMBER_KEYS_HEX:\n  {self.local_key.hex()}")
         self.register_anonymous_task(
             "mining_loop",
-            self.miner.mining_loop,
-            self.chain,
-            self.mempool,
-            self,
+            self.mine_after_teammates_connect,
             ignore=(Exception,),
         )
 
@@ -210,6 +207,21 @@ class Lab3BlockchainCommunity(Community):
             if p.public_key.key_to_bin() in self.member_keys
             and p.public_key.key_to_bin() not in (self.local_key, exclude_key)
         ]
+
+    async def mine_after_teammates_connect(self):
+        expected = set(self.member_keys) - {self.local_key}
+        last_missing = None
+        while True:
+            connected = {peer.public_key.key_to_bin() for peer in self.teammates()}
+            missing = expected - connected
+            if not missing:
+                break
+            if missing != last_missing:
+                LOG.info("Waiting for teammate keys: %s", ", ".join(key.hex() for key in sorted(missing)))
+                last_missing = missing
+            await asyncio.sleep(1)
+        LOG.info("All %d teammates connected; starting mining", len(expected))
+        await self.miner.mining_loop(self.chain, self.mempool, self)
 
     def send_submit_response(self, peer, success: bool, txh: bytes, message: str):
         self.ez_send(peer, SubmitTransactionResponsePayload(success, txh, message))
